@@ -119,6 +119,11 @@ corrplot::corrplot(cormat,method = "circle", tl.col = "black", is.corr = FALSE)
 corrplot::corrplot(cormat,method="number", tl.col = "black", is.corr = FALSE)
 corrplot::corrplot(cormat,method="pie", tl.col = "black", is.corr = FALSE)
 
+
+#Pittsburgh correlations
+Pittscorr<- cormat[nrow(cormat),]
+#correlations52-70% with No awakenings age apneas central apneas mixed sleep efficiency
+
 #lapply(df_clean,is.na)
 
 mean(df_clean$Total.Sleep.Time)
@@ -138,4 +143,205 @@ colnames(descr)<-c("mean", "median", "variance", "standard dev", "min", "max", "
 descr
 
 #---------------------Scaling---------------------------------------------------
-df0<- scale(df_clean[,c(-1,-2)], center=TRUE, scale=TRUE)
+#center and scale
+numpred<-df_clean[,-c(1,2,24,25)]
+nearZeroVar(numpred)
+scaled <-data.frame(apply(numpred, 2, scale))
+nearZeroVar(scaled)
+
+sum(is.na(numpred))
+sum(is.na(scaled))
+
+
+
+#descr for scaled
+datmean1 <- sapply(scaled[,3:ncol(scaled)],"mean" ,na.rm=TRUE)
+datsd1<-sapply(scaled[,3:ncol(scaled)], "sd", na.rm=TRUE)
+datvar1<- sapply(scaled[,3:ncol(scaled)], "var", na.rm=TRUE)
+datmin1<- sapply(scaled[,3:ncol(scaled)], "min", na.rm=TRUE)
+datmax1<- sapply(scaled[,3:ncol(scaled)], "max", na.rm=TRUE)
+datmedian1<- sapply(scaled[,3:ncol(scaled)], "median", na.rm=TRUE)
+datrange1<- sapply(scaled[,3:ncol(scaled)], "range", na.rm=TRUE)
+
+descr1<- cbind(datmean1,datmedian1, datvar1, datsd,datmin1, datmax1, range=datmax1-datmin1)
+colnames(descr1)<-c("mean", "median", "variance", "standard dev", "min", "max", "range")
+descr1
+
+
+
+#-------------SVM feature selection---------------------
+
+library(caret)
+#backwards feature selection
+#x <- scale(df_clean[,-c(1,2,24,25)])
+#x <- x[, -findCorrelation(cor(x), .8)]
+#x <- as.data.frame(x)
+#svmProfile <- rfe(x, df_clean[,25],   sizes = c(2, 5, 10),  rfeControl = rfeControl(functions = caretFuncs,                                           number = 50, verbose=TRUE, p=0.7),
+                                                                                ## pass options to train()
+                                                                                method = "svmRadial")
+#svmProfile
+library(e1071)
+testset<-df_clean[, -c(1,2,24)]
+tune_out <- tune.svm(Pittsburgh.Sleep.Quality.Index~. , data = t ,cost=c(0.0001,0.001,0.01, 0.1, 1,10), 
+                     gamma=c(0.0001,0.001,0.01,0.1,1,10),kernel="radial", tunecontrol= tune.control(cross=5))
+summary(tune_out)
+tune_out$best.parameters
+
+
+
+#center and scale
+set.seed(3)
+t<- df_clean[,c(3,4,5,11,18,19,25)]
+t[,7]<- t[,7]/28
+normal<-preProcess(testset)
+testn <- predict(normal,testset)
+ctrl<- rfeControl(functions = lrFuncs,
+           method = "cv",
+           number=10,
+           verbose = FALSE)
+subset<- c(1:10, 12,15,18,20,22)
+rfe(x= t[,-7], t[,7] ,sizes= c(1:6), rfeControl = ctrl, method= "svmLinear"   )
+
+rfeCNTL = rfeControl(functions=lrFuncs, method="cv", number=10)
+svm.features = rfe(t[,1:6], t[,7],sizes = c(1,2,4,5),
+                     rfeControl = rfeCNTL, method = "svmLinear")
+
+#---------------------------------------PCA--------------------------------------------
+pca<- prcomp(scaled)
+plot(pca, type = "l")
+plot(summary(pca)[[6]][3,], type='b', main= "Variance explained vs PCs", xlab="PCs", ylab="Variance explained")        
+summary(pca)
+biplot(pca)
+
+
+library(bestglm)
+str(df_clean)
+LOOCV(df_clean[,-c(1,2,24,25)], df_clean$Pittsburgh.Sleep.Quality.Index)
+#naive bayes needs y categ
+train_control <- trainControl(method="repeatedcv", number=10, repeats=3)
+# train the model
+
+#factor pittsburgh
+names(getModelInfo())
+model1<- train(Pittsburgh.Sleep.Quality.Index~ Awakenings.No.+Age+Apneas.Central+Apneas.Mixed+Sleep.Efficiency, data= df_clean, trControl= train_control, method="lm")
+summary(model1)
+
+df_clean$target[df$Pittsburgh.Sleep.Quality.Index<5]<-"ok"
+df_clean$target[df$Pittsburgh.Sleep.Quality.Index>=5]<- "poor"
+df_clean$target<- factor(df_clean$target, ordered=FALSE)
+str(df_clean)
+plot(df_clean$target, type="h")
+summary(df_clean$target)
+boxplot(df_clean$Pittsburgh.Sleep.Quality.Index~df_clean$target, col=c(3,2))
+
+modelNB <- train(target~. , data=df_clean[,-c(1,2,24,25)], trControl=train_control, method="nb")
+str(df_clean)
+model$results
+
+modelRF <- train(target~. , data=df_clean[,-c(1,2,24,25)], trControl=train_control, method="rf")
+modelRF$results
+
+modelSVMradial <- train(target~. , data=df_clean[,-c(1,2,24,25)], trControl=train_control, method="svmRadial")
+modelSVMradial
+
+
+modelSVMlinear <- train(target~. , data=df_clean[,-c(1,2,24,25)], trControl=train_control, method="svmLinear")
+modelSVMlinear
+
+modelSVMpoly <- train(target~. , data=df_clean[,-c(1,2,24,25)], trControl=train_control, method="svmPoly")
+modelSVMpoly
+
+modelLM <- train(Pittsburgh.Sleep.Quality.Index~. , data=df_clean[,-c(1,2,24,26)], trControl=train_control, method="lm")
+modelLM
+
+modelLDA <- train(target~. , data=df_clean[,-c(1,2,24,25)], trControl=train_control, method="lda")
+modelLDA
+
+modelrpart <- train(Pittsburgh.Sleep.Quality.Index~. , data=df_clean[,-c(1,2,24,26)], trControl=train_control, method="rpart")
+modelrpart
+
+modelrpartclass <- train(target~. , data=df_clean[,-c(1,2,24,25)], trControl=train_control, method="rpart")
+modelrpartclass
+
+#Leave one out cross validation
+tune_out <- tune.svm(target~Awakenings.No.+Age+Apneas.Central+Apneas.Mixed+Sleep.Efficiency+BMI , data = df_clean[,-c(1,2,24,25)] ,cost=c(0.0001,0.001,0.01, 0.1, 1,10), 
+                     gamma=c(0.0001,0.001,0.01,0.1,1,10),kernel="radial", tunecontrol= tune.control(cross=27))
+summary(tune_out)
+tune_out$best.performance #0.185 error -> 81.5% accuracy
+tune_out$best.parameters #gamma=1 cost=10
+svmfit <- svm(target~Awakenings.No.+Age+Apneas.Central+Apneas.Mixed+Sleep.Efficiency+BMI, data = df_clean[,-c(1,2,24,25)] , kernel = "radial", cost=10, gamma=1)
+
+#confusion matrix
+eval1_rbf <- predict(svmfit, data =df_clean[,-c(1,2,24,25,26)]  , type = "response")
+table(eval1_rbf, df_clean$target)
+
+#tune.rpart
+#tune.randomForest
+#tune.knn
+
+
+#-----------------Variable removal based on high correlation >.75 and >.90---------------------------------------------------
+str(df_clean)
+findCorrelation(cor(df_clean[,-c(1,2,26)]),exact = TRUE, verbose=TRUE, names=TRUE, cutoff = 0.75) #prints columns to remove
+#cutoff= 0.75: N2 duration, REM total sleep, Apneas Central, Apneas. Hypoapneas, Light total sleep, Latency, N3 duration, N3 latency
+findCorrelation(cor(df_clean[,-c(1,2,26)]),exact = TRUE, verbose=TRUE, names=FALSE, cutoff = 0.9) #prints columns to remove
+#cutoff= 0.9 N2 duration, REM total sleep, Apneas central, Light total sleep, Latency
+findCorrelation(cor(df_clean[,-c(1,2,26)]),exact = TRUE, verbose=TRUE, names=TRUE, cutoff = 0.95) #prints columns to remove
+#cutoff= 0.95 Deep total sleep Apneas central, Latency
+
+
+train_control <- trainControl(method="repeatedcv", number=10, repeats=3)
+model1<- train(Pittsburgh.Sleep.Quality.Index~ Awakenings.No.+Age+Apneas.Central+Apneas.Mixed+Sleep.Efficiency, data= df_clean, trControl= train_control, method="lm")
+summary(model1)
+varImp(model1)
+plot(varImp(model1))
+
+model2<- train(Pittsburgh.Sleep.Quality.Index~., data= df_clean[,-c(1,2,24,26)], trControl= train_control, method="lm" )
+plot(varImp(model2))
+varImp(model2)
+
+model3<- train(Pittsburgh.Sleep.Quality.Index~Latency+N2.Latency+Apneas.Mixed+Awakenings.No.+Apneas.Hypopneas, data= df_clean[,-c(1,2,24,26)], trControl= train_control, method="lm" )
+summary(model3)
+#adjusted R2= 73
+
+
+
+#rfe for random forest
+control1 <- rfeControl(functions=rfFuncs, method="cv", number=nrow(df_clean))
+results <- rfe(df_clean[,-c(1,2,24,25,26)], df_clean[,26], sizes=c(1:20), rfeControl=control1)
+results
+predictors(results)
+plot(results, type=c("g", "o"))
+plot(df_clean$Pittsburgh.Sleep.Quality.Index~df_clean$Age)
+plot(df_clean$Age~df_clean$target)
+
+
+results <- rfe(df_clean[,-c(1,2,24,25,26)],df_clean[,26], sizes=c(1:20),
+               preProcess = c("scale", "center"),rfeControl=control1)
+
+
+ctrl <- trainControl(method = "repeatedcv", 
+                     number = 10, 
+                     repeats = 10, 
+                     verboseIter = FALSE,
+                     sampling = "down")
+
+set.seed(42)
+model_rf_under <- train(df_clean[,-c(1,2,24,25,26)],df_clean[,26] , method="svmRadial",
+                               preProcess = c("scale", "center"),
+                               trControl = ctrl )
+model_rf_under
+
+
+ctrl2<-trainControl(method = "cv", 
+             number = nrow(df_clean), 
+              
+             verboseIter = FALSE,
+             sampling = "rose")
+
+model_rf_rose <- train(df_clean[,-c(1,2,8,17,21,15,6,24,25,26)],df_clean[,26] , method="svmRadial",
+                        preProcess = c("scale", "center"),
+                        trControl = ctrl2 )
+model_rf_rose
+  
+     

@@ -218,6 +218,7 @@ boxplot(df_clean$Pittsburgh.Sleep.Quality.Index~df_clean$target, col=c(3,2))
 
 #-------------------------SVM-----------------------------------------------------------------------------
 #Leave one out cross validation
+library(e1071)
 tune_out <- tune.svm(target~Awakenings.No.+Age+Apneas.Central+Apneas.Mixed+Sleep.Efficiency+BMI , data = df_clean[,-c(1,2,24,25)] ,cost=c(0.0001,0.001,0.01, 0.1, 1,10), 
                      gamma=c(0.0001,0.001,0.01,0.1,1,10),kernel="radial", tunecontrol= tune.control(cross=27))
 summary(tune_out)
@@ -235,7 +236,7 @@ table(eval1_rbf, df_clean$target)
 
 
 #-----------------Variable removal based on high correlation >.75 and >.90---------------------------------------------------
-install.packages("caret")
+#install.packages("caret")
 library(caret)
 str(df_clean)
 findCorrelation(cor(df_clean[,-c(1,2,26)]),exact = TRUE, verbose=TRUE, names=TRUE, cutoff = 0.75) #prints columns to remove
@@ -258,17 +259,21 @@ tune_out$best.parameters #gamma=0.1 0.01 cost=10
 tune_out1 <- tune.svm(target ~ Age+ Latency + N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(0.0001,0.001,0.01, 0.1, 1,10), 
                       gamma=c(0.0001,0.001,0.01,0.1,1,10),kernel="radial", tunecontrol= tune.control(cross=10))
 summary(tune_out1)
-tune_out1$best.performance #0.1833- 0.216 error -> 81.7% accuracy
-tune_out1$best.parameters #gamma=0.1 cost=10
-
+tune_out1$best.performance #0.1833- 0.216 error -> 81.7% accuracy 
+tune_out1$best.parameters #gamma=0.1 cost=10 
+#---------------------------
 #further grid search
-tune_out2<-tune.svm(target ~ Age+ Latency + N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(2,5,10,15,20,40), 
+tune_out2<-tune.svm(target ~ Age+Latency+ N3.duration  , data = df_clean[,-c(1,2,24,25)] ,cost=c(2,5,10,15,20,40), 
                     gamma=c(0.5,0.3,0.2, 0.1, 0.01,0.05, 0.08),kernel="radial", tunecontrol= tune.control(cross=nrow(df_clean)))
 summary(tune_out2)
 tune_out2$best.performance #0.111 error -> 88.89% accuracy
 #misses 3 in 27
 tune_out2$best.parameters #gamma=0.3 cost=10 15
+svm_fitt <- svm(target ~ Age+ Latency + N3.duration, data = df_clean[,-c(1,2,24,25)] , kernel = "radial", cost=10, gamma=0.3)
+eval2_rbf <- predict(svm_fitt, data =df_clean[,-c(1,2,24,25,26)]  , type = "response")
+table(eval2_rbf, df_clean$target)
 
+#-------------------------
 tune_out3<-tune.svm(target ~ Age+ Latency + N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(8, 10, 12, 14, 15, 16), 
                     gamma=c(0.29, 0.295, 0.3 ,0.305, 0.31, 0.32, 0.325,  0.33 ), kernel="radial",
                     tunecontrol= tune.control(cross=nrow(df_clean)))
@@ -331,7 +336,7 @@ plot(tree)
 text(tree)
 printcp(tree)
 
-tree2<- rpart(target~., data= df_clean[,-c(1,24,25)],control=rpart.control(minsplit=3, cp=0.01), method="class")
+tree2<- rpart(target~., data= df_clean[,-c(1,2,24,25)],control=rpart.control(minsplit=3, cp=0.01), method="class")
 plot(tree2)
 text(tree2)
 printcp(tree2) # display the results 
@@ -342,12 +347,13 @@ plotcp(tree2) # visualize cross-validation results
 library(tree)
 
 controltree<- tree.control(nobs=27, mincut=0, minsize = 2, mindev = 0.005 )  #mincut=0, minsize = 2 for perfect fit
-treee<- tree(target~. , data=df_clean[,-c(1,24,25)], control= controltree  )
-#"Age"         "Latency"     "N3.duration"
+treee<- tree(target~. , data=df_clean[,-c(1,2,24,25)], control= controltree  )
+#"Age"         "Latency"     "BMI"
 summary(treee)
 plot(treee)
 text(treee, pretty = 0)
 #predict(treee, newdata = target, type="class")
+cbind(df_clean$Age, df_clean$Latency,df_clean$BMI, df_clean$target)
 
 attach(df_clean)
 plot(Age~target)
@@ -358,14 +364,14 @@ plot(N3.duration~target)
 #str(df_clean)
 
 controltree<- tree.control(nobs=27, mincut=5, minsize = 10, mindev = 0.1 )  #mincut=0, minsize = 2 for perfect fit
-treee<- tree(target~. , data=df_clean[,-c(1,24,25)], control= controltree  )
+treee<- tree(target~. , data=df_clean[,-c(1,2,24,25)], control= controltree  )
 plot(treee)
 text(treee)
 summary(treee)
-#Latency BMI 22/26
+#N2 duration BMI 24/27
 
 controltree<- tree.control(nobs=27 )  #mincut=0, minsize = 2 for perfect fit
-treee<- tree(target~. , data=df_clean[,-c(1,24,25)], control= controltree  )
+treee<- tree(target~. , data=df_clean[,-c(1,2,24,25)], control= controltree  )
 plot(treee)
 text(treee)
 summary(treee)

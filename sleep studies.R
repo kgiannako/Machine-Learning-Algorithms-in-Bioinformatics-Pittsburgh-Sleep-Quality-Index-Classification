@@ -8,7 +8,9 @@
 #install.packages("corrplot")
 #install.packages("GGally")
 #install.packages("Hmisc")
-#install.packages("")
+#install.packages("rpart")
+#install.packages("tree")
+
 
 library(dplyr)
 library(ggplot2)
@@ -182,7 +184,213 @@ descr<- cbind(datmean,datmedian, datvar, datsd,datmin, datmax, range=datmax-datm
 colnames(descr)<-c("mean", "median", "variance", "standard dev", "min", "max", "range", "CV %")
 #Descriptive statistics of numeric variables
 descr
+
+
 #--------------------------------------------------------------------------------------------------------------------
+str(df_clean)
+#---------------------------------------PCA--------------------------------------------
+pca<- prcomp(df_clean[,c(-1,-2)] ,center=TRUE, scale=TRUE)
+plot(pca, type = "l")
+plot(summary(pca)[[6]][3,], type='b', main= "Variance explained vs PCs", xlab="PCs", ylab="Variance explained")        
+summary(pca)
+biplot(pca)
+
+
+
+
+#-----------------------------factor pittsburgh-----------------------------------------------------------
+df_clean$target[df$Pittsburgh.Sleep.Quality.Index<=5]<-"ok"
+df_clean$target[df$Pittsburgh.Sleep.Quality.Index>5]<- "poor"
+df_clean$target<- factor(df_clean$target, ordered=FALSE)
+str(df_clean)
+plot(df_clean$target)
+hist(df_clean$Pittsburgh.Sleep.Quality.Index)
+summary(df_clean$target)
+boxplot(df_clean$Pittsburgh.Sleep.Quality.Index~df_clean$target, col=c(3,2))
+#---------------------------------------------------------------------------------------------------------
+#factor in 3 categories
+#df_clean$y[df$Pittsburgh.Sleep.Quality.Index<=5]<-"ok"
+#df_clean$y[df$Pittsburgh.Sleep.Quality.Index>5 & df$Pittsburgh.Sleep.Quality.Index<=8]<- "borderline"
+#df_clean$y[df$Pittsburgh.Sleep.Quality.Index>8]<-"poor"
+#df_clean$y<- factor(df_clean$y, ordered=FALSE)
+#plot(df_clean$y)
+#---------------------------------------------------------------------------------------------------------
+
+#-------------------------SVM-----------------------------------------------------------------------------
+#Leave one out cross validation
+tune_out <- tune.svm(target~Awakenings.No.+Age+Apneas.Central+Apneas.Mixed+Sleep.Efficiency+BMI , data = df_clean[,-c(1,2,24,25)] ,cost=c(0.0001,0.001,0.01, 0.1, 1,10), 
+                     gamma=c(0.0001,0.001,0.01,0.1,1,10),kernel="radial", tunecontrol= tune.control(cross=27))
+summary(tune_out)
+tune_out$best.performance #0.185 error -> 81.5% accuracy
+tune_out$best.parameters #gamma=1 cost=10
+svmfit <- svm(target~Awakenings.No.+Age+Apneas.Central+Apneas.Mixed+Sleep.Efficiency+BMI, data = df_clean[,-c(1,2,24,25)] , kernel = "radial", cost=10, gamma=1)
+
+#confusion matrix
+eval1_rbf <- predict(svmfit, data =df_clean[,-c(1,2,24,25,26)]  , type = "response")
+table(eval1_rbf, df_clean$target)
+
+#tune.rpart
+#tune.randomForest
+#tune.knn
+
+
+#-----------------Variable removal based on high correlation >.75 and >.90---------------------------------------------------
+install.packages("caret")
+library(caret)
+str(df_clean)
+findCorrelation(cor(df_clean[,-c(1,2,26)]),exact = TRUE, verbose=TRUE, names=TRUE, cutoff = 0.75) #prints columns to remove
+#cutoff= 0.75: N2 duration, REM total sleep, Apneas Central, Apneas. Hypoapneas, Light total sleep, Latency, N3 duration, N3 latency
+findCorrelation(cor(df_clean[,-c(1,2,26)]),exact = TRUE, verbose=TRUE, names=FALSE, cutoff = 0.9) #prints columns to remove
+#cutoff= 0.9 N2 duration, REM total sleep, Apneas central, Light total sleep, Latency
+findCorrelation(cor(df_clean[,-c(1,2,26)]),exact = TRUE, verbose=TRUE, names=TRUE, cutoff = 0.95) #prints columns to remove
+#cutoff= 0.95 Deep total sleep Apneas central, Latency
+
+
+#-----------------------------SVM----------------------------------------------------
+#Leave one out cross validation
+tune_out <- tune.svm(target ~ Age+ Latency + N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(0.0001,0.001,0.01, 0.1, 1,10), 
+                     gamma=c(0.0001,0.001,0.01,0.1,1,10),kernel="radial", tunecontrol= tune.control(cross=nrow(df_clean)))
+summary(tune_out)
+tune_out$best.performance #0.222 error -> 77.8% accuracy
+tune_out$best.parameters #gamma=0.1 0.01 cost=10
+
+#10-fold
+tune_out1 <- tune.svm(target ~ Age+ Latency + N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(0.0001,0.001,0.01, 0.1, 1,10), 
+                      gamma=c(0.0001,0.001,0.01,0.1,1,10),kernel="radial", tunecontrol= tune.control(cross=10))
+summary(tune_out1)
+tune_out1$best.performance #0.1833- 0.216 error -> 81.7% accuracy
+tune_out1$best.parameters #gamma=0.1 cost=10
+
+#further grid search
+tune_out2<-tune.svm(target ~ Age+ Latency + N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(2,5,10,15,20,40), 
+                    gamma=c(0.5,0.3,0.2, 0.1, 0.01,0.05, 0.08),kernel="radial", tunecontrol= tune.control(cross=nrow(df_clean)))
+summary(tune_out2)
+tune_out2$best.performance #0.111 error -> 88.89% accuracy
+#misses 3 in 27
+tune_out2$best.parameters #gamma=0.3 cost=10 15
+
+tune_out3<-tune.svm(target ~ Age+ Latency + N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(8, 10, 12, 14, 15, 16), 
+                    gamma=c(0.29, 0.295, 0.3 ,0.305, 0.31, 0.32, 0.325,  0.33 ), kernel="radial",
+                    tunecontrol= tune.control(cross=nrow(df_clean)))
+summary(tune_out3)
+tune_out3$best.performance #0.111 error -> 88.89% accuracy
+tune_out3$best.parameters #gamma=0.28-0.31 cost= 15
+# me 10-fold error 0.0833 - > acc=91.67% gamma=0.325 0.33 cost=14 15
+
+# 10-fold
+tune_out4<-tune.svm(target ~ Age + Latency + N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(12,14,15,16,17), 
+                    gamma=c(0.3 ,0.31, 0.32,0.3225, 0.3250,  0.3275, 0.33,0.335 ),kernel="radial", tunecontrol= tune.control(cross=10))
+summary(tune_out4)
+tune_out4$best.performance #0.111 error -> 88.89% accuracy
+tune_out4$best.parameters #gamma=0.28-0.31 cost= 15
+# me 10-fold error 0.0833 - > acc=91.67% gamma=0.325 0.33 cost=14 15
+
+
+str(df_clean)
+scaled<- scale(x= df_clean[,-c(1,2,24,25,26)], center=TRUE, scale = TRUE)
+scaled<- cbind(df_clean[,c(1,2)], scaled, df_clean[,c(24:26)])
+str(scaled)
+
+tune_out_scaled <- tune.svm(target ~ Age+ Latency + N3.duration , data = scaled[,-c(1,2,24,25)] ,cost=c(0.0001,0.001,0.01, 0.1, 1,10), 
+                            gamma=c(0.0001,0.001,0.01,0.1,1,10),kernel="radial", tunecontrol= tune.control(cross=nrow(scaled)))
+summary(tune_out_scaled)
+tune_out_scaled$best.performance #0.222 error -> 77.8% accuracy
+tune_out_scaled$best.parameters #gamma=0.1 0.01 cost=10
+
+tune_out_scaled1 <- tune.svm(target ~ Age+ Latency + N3.duration , data = scaled[,-c(1,2,24,25)] ,cost=c(8,9,10,11,12,15), 
+                             gamma=c(0.2,0.25, 0.28, 0.3, 0.32, 0.33, 0.35, 0.4),kernel="radial", tunecontrol= tune.control(cross=nrow(scaled)))
+summary(tune_out_scaled1)
+tune_out_scaled1$best.performance #0.111 error
+tune_out_scaled1$best.parameters 
+
+tune_out_scaled2 <- tune.svm(target ~ Age+ Latency + N3.duration , data = scaled[,-c(1,2,24,25)] ,cost=c(7,7.5,8,8.5,9,10,12.5), 
+                             gamma=c( 0.3, 0.31, 0.32, 0.325, 0.33, 0.34,0.345,0.35),kernel="radial", tunecontrol= tune.control(cross=nrow(scaled)))
+summary(tune_out_scaled2)
+tune_out_scaled2$best.performance #0.111 error -> 88.8% accuracy
+tune_out_scaled2$best.parameters #gia oles tis parametrous
+
+tune_out_scaled3 <- tune.svm(target ~ Age+ Latency + N3.duration , data = scaled[,-c(1,2,24,25)] ,cost=c(7,7.5,8,8.5,9,10,12.5,14), 
+                             gamma=c( 0.3, 0.31, 0.32, 0.325, 0.33, 0.34,0.345,0.35),kernel="radial", 
+                             tunecontrol= tune.control(cross=10))
+summary(tune_out_scaled3)
+tune_out_scaled3$best.performance #0.1-0.13 error 
+tune_out_scaled3$best.parameters 
+
+#best performance at LOOCV 0.11, 24/27
+
+#----------------------------------------------------------------------------------------------------------------------------
+
+#rpart
+library(rpart)
+tree<- rpart(target~Latency+N2.Latency+Apneas.Mixed+Awakenings.No.+Apneas.Hypopneas, 
+             data=df_clean, method="class", control=rpart.control(minsplit=3, cp=0.01))
+tree
+plotcp(tree)
+summary(tree)
+plot(tree)
+text(tree)
+printcp(tree)
+
+tree2<- rpart(target~., data= df_clean[,-c(1,24,25)],control=rpart.control(minsplit=3, cp=0.01), method="class")
+plot(tree2)
+text(tree2)
+printcp(tree2) # display the results 
+plotcp(tree2) # visualize cross-validation results 
+
+
+#tree
+library(tree)
+
+controltree<- tree.control(nobs=27, mincut=0, minsize = 2, mindev = 0.005 )  #mincut=0, minsize = 2 for perfect fit
+treee<- tree(target~. , data=df_clean[,-c(1,24,25)], control= controltree  )
+#"Age"         "Latency"     "N3.duration"
+summary(treee)
+plot(treee)
+text(treee, pretty = 0)
+#predict(treee, newdata = target, type="class")
+
+attach(df_clean)
+plot(Age~target)
+plot(Latency~target)
+plot(N3.duration~target)
+
+#w<-cbind(Age, Latency, N3.duration, target)
+#str(df_clean)
+
+controltree<- tree.control(nobs=27, mincut=5, minsize = 10, mindev = 0.1 )  #mincut=0, minsize = 2 for perfect fit
+treee<- tree(target~. , data=df_clean[,-c(1,24,25)], control= controltree  )
+plot(treee)
+text(treee)
+summary(treee)
+#Latency BMI 22/26
+
+controltree<- tree.control(nobs=27 )  #mincut=0, minsize = 2 for perfect fit
+treee<- tree(target~. , data=df_clean[,-c(1,24,25)], control= controltree  )
+plot(treee)
+text(treee)
+summary(treee)
+misclass.tree(treee, detail=TRUE)
+predict(treee, newdata= target, type = "vector")
+
+
+#rpart<-tune.rpart(target ~ Age+ Latency + N3.duration+BMI, data = df_clean, minsplit=seq(1:15),cp=c(0.001,0.005,0.01,0.05,0.1,0.05), maxdepth = 1:10)
+#plot(rpart)
+
+
+
+library(ROCR)     
+predictions=as.vector(rf_output$votes[,2])
+pred=prediction(predictions,target)
+
+perf_AUC=performance(pred,"auc") #Calculate the AUC value
+AUC=perf_AUC@y.values[[1]]
+
+perf_ROC=performance(pred,"tpr","fpr") #plot the actual ROC curve
+plot(perf_ROC, main="ROC plot")
+text(0.5,0.5,paste("AUC = ",format(AUC, digits=5, scientific=FALSE)))
+
+
+#-------------------------------------Trial and error, mostly error----------------------------------
 #---------------------Scaling---------------------------------------------------
 #center and scale
 numpred<-df_clean[,-c(1,2,24,25)]
@@ -210,7 +418,7 @@ descr1
 
 
 
-#-------------SVM feature selection---------------------
+#-------------SVM feature selection------------------------------------------------------------------
 
 library(caret)
 #backwards feature selection
@@ -218,8 +426,8 @@ library(caret)
 #x <- x[, -findCorrelation(cor(x), .8)]
 #x <- as.data.frame(x)
 #svmProfile <- rfe(x, df_clean[,25],   sizes = c(2, 5, 10),  rfeControl = rfeControl(functions = caretFuncs,                                           number = 50, verbose=TRUE, p=0.7),
-                                                                                ## pass options to train()
-                                                                               # method = "svmRadial")
+## pass options to train()
+# method = "svmRadial")
 #svmProfile
 library(e1071)
 testset<-df_clean[, -c(1,2,24)]
@@ -237,22 +445,15 @@ t[,7]<- t[,7]/28
 normal<-preProcess(testset)
 testn <- predict(normal,testset)
 ctrl<- rfeControl(functions = lrFuncs,
-           method = "cv",
-           number=10,
-           verbose = FALSE)
+                  method = "cv",
+                  number=10,
+                  verbose = FALSE)
 subset<- c(1:10, 12,15,18,20,22)
 rfe(x= t[,-7], t[,7] ,sizes= c(1:6), rfeControl = ctrl, method= "svmLinear"   )
 
 rfeCNTL = rfeControl(functions=lrFuncs, method="cv", number=10)
 svm.features = rfe(t[,1:6], t[,7],sizes = c(1,2,4,5),
-                     rfeControl = rfeCNTL, method = "svmLinear")
-
-#---------------------------------------PCA--------------------------------------------
-pca<- prcomp(scaled)
-plot(pca, type = "l")
-plot(summary(pca)[[6]][3,], type='b', main= "Variance explained vs PCs", xlab="PCs", ylab="Variance explained")        
-summary(pca)
-biplot(pca)
+                   rfeControl = rfeCNTL, method = "svmLinear")
 
 
 library(bestglm)
@@ -262,26 +463,11 @@ LOOCV(df_clean[,-c(1,2,24,25)], df_clean$Pittsburgh.Sleep.Quality.Index)
 train_control <- trainControl(method="repeatedcv", number=10, repeats=3)
 # train the model
 
-#factor pittsburgh
 names(getModelInfo())
 model1<- train(Pittsburgh.Sleep.Quality.Index~ Awakenings.No.+Age+Apneas.Central+Apneas.Mixed+Sleep.Efficiency, data= df_clean, trControl= train_control, method="lm")
 summary(model1)
 
-df_clean$target[df$Pittsburgh.Sleep.Quality.Index<=5]<-"ok"
-df_clean$target[df$Pittsburgh.Sleep.Quality.Index>5]<- "poor"
-df_clean$target<- factor(df_clean$target, ordered=FALSE)
-str(df_clean)
-plot(df_clean$target, type="h")
-plot(df_clean$Pittsburgh.Sleep.Quality.Index, type="h")
-summary(df_clean$target)
-boxplot(df_clean$Pittsburgh.Sleep.Quality.Index~df_clean$target, col=c(3,2))
 
-#factor in 3 categories
-#df_clean$y[df$Pittsburgh.Sleep.Quality.Index<=5]<-"ok"
-#df_clean$y[df$Pittsburgh.Sleep.Quality.Index>5 & df$Pittsburgh.Sleep.Quality.Index<=8]<- "borderline"
-#df_clean$y[df$Pittsburgh.Sleep.Quality.Index>8]<-"poor"
-#df_clean$y<- factor(df_clean$y, ordered=FALSE)
-#plot(df_clean$y)
 
 modelNB <- train(target~. , data=df_clean[,-c(1,2,24,25)], trControl=train_control, method="nb")
 str(df_clean)
@@ -311,33 +497,8 @@ modelrpart
 
 modelrpartclass <- train(target~. , data=df_clean[,-c(1,2,24,25)], trControl=train_control, method="rpart")
 modelrpartclass
-
-#Leave one out cross validation
-tune_out <- tune.svm(target~Awakenings.No.+Age+Apneas.Central+Apneas.Mixed+Sleep.Efficiency+BMI , data = df_clean[,-c(1,2,24,25)] ,cost=c(0.0001,0.001,0.01, 0.1, 1,10), 
-                     gamma=c(0.0001,0.001,0.01,0.1,1,10),kernel="radial", tunecontrol= tune.control(cross=27))
-summary(tune_out)
-tune_out$best.performance #0.185 error -> 81.5% accuracy
-tune_out$best.parameters #gamma=1 cost=10
-svmfit <- svm(target~Awakenings.No.+Age+Apneas.Central+Apneas.Mixed+Sleep.Efficiency+BMI, data = df_clean[,-c(1,2,24,25)] , kernel = "radial", cost=10, gamma=1)
-
-#confusion matrix
-eval1_rbf <- predict(svmfit, data =df_clean[,-c(1,2,24,25,26)]  , type = "response")
-table(eval1_rbf, df_clean$target)
-
-#tune.rpart
-#tune.randomForest
-#tune.knn
-
-
-#-----------------Variable removal based on high correlation >.75 and >.90---------------------------------------------------
-str(df_clean)
-findCorrelation(cor(df_clean[,-c(1,2,26)]),exact = TRUE, verbose=TRUE, names=TRUE, cutoff = 0.75) #prints columns to remove
-#cutoff= 0.75: N2 duration, REM total sleep, Apneas Central, Apneas. Hypoapneas, Light total sleep, Latency, N3 duration, N3 latency
-findCorrelation(cor(df_clean[,-c(1,2,26)]),exact = TRUE, verbose=TRUE, names=FALSE, cutoff = 0.9) #prints columns to remove
-#cutoff= 0.9 N2 duration, REM total sleep, Apneas central, Light total sleep, Latency
-findCorrelation(cor(df_clean[,-c(1,2,26)]),exact = TRUE, verbose=TRUE, names=TRUE, cutoff = 0.95) #prints columns to remove
-#cutoff= 0.95 Deep total sleep Apneas central, Latency
-
+#--------------------------------
+#--------------------------------
 
 train_control <- trainControl(method="repeatedcv", number=10, repeats=3)
 model1<- train(Pittsburgh.Sleep.Quality.Index~ Awakenings.No.+Age+Apneas.Central+Apneas.Mixed+Sleep.Efficiency, data= df_clean, trControl= train_control, method="lm")
@@ -380,19 +541,19 @@ ctrl <- trainControl(method = "repeatedcv",
 
 set.seed(42)
 model_rf_under <- train(df_clean[,-c(1,2,24,25,26)],df_clean[,26] , method="svmRadial",
-                               preProcess = c("scale", "center"),
-                               trControl = ctrl )
+                        preProcess = c("scale", "center"),
+                        trControl = ctrl )
 model_rf_under
 
 
 ctrl2<- trainControl(method = "cv", 
-             number = nrow(df_clean), 
-             verboseIter = FALSE, sampling = "smote",
-             classProbs = TRUE)
+                     number = nrow(df_clean), 
+                     verboseIter = FALSE, sampling = "smote",
+                     classProbs = TRUE)
 
 model_rf_rose <- train(df_clean[,-c(1,2,8,17,21,15,6,24,25,26)],df_clean[,26] , method="svmRadial",
-                        preProcess = c("scale", "center"),
-                        trControl = ctrl2 )
+                       preProcess = c("scale", "center"),
+                       trControl = ctrl2 )
 
 svmm<-svm(df_clean[,26] ~. , data = df_clean[,-c(1,2,8,17,21,15,6,24,25)] , method="C-classification", kernel="radial",cost=0.5, gamma=0.05)
 summary(svmm)
@@ -401,141 +562,18 @@ eval1__rbf <- predict(svmm, newdata = test , type = "response")
 table(eval1__rbf, test$label)
 
 
-library(ROCR)     
-predictions=as.vector(rf_output$votes[,2])
-pred=prediction(predictions,target)
-
-perf_AUC=performance(pred,"auc") #Calculate the AUC value
-AUC=perf_AUC@y.values[[1]]
-
-perf_ROC=performance(pred,"tpr","fpr") #plot the actual ROC curve
-plot(perf_ROC, main="ROC plot")
-text(0.5,0.5,paste("AUC = ",format(AUC, digits=5, scientific=FALSE)))
 
 
-#rpart
-library(rpart)
-tree<- rpart(target~Latency+N2.Latency+Apneas.Mixed+Awakenings.No.+Apneas.Hypopneas, 
-            data=df_clean, method="class", control=rpart.control(minsplit=3, cp=0.01))
-tree
-plotcp(tree)
-summary(tree)
-plot(tree)
-text(tree)
-printcp(tree)
-
-tree2<- rpart(target~., data= df_clean[,-c(1,24,25)],control=rpart.control(minsplit=3, cp=0.01), method="class")
-plot(tree2)
-text(tree2)
-printcp(tree2) # display the results 
-plotcp(tree2) # visualize cross-validation results 
 
 
-#tree
-library(tree)
 
 
-controltree<- tree.control(nobs=27, mincut=0, minsize = 2, mindev = 0.005 )  #mincut=0, minsize = 2 for perfect fit
-treee<- tree(target~. , data=df_clean[,-c(1,24,25)], control= controltree  )
-#"Age"         "Latency"     "N3.duration"
-summary(treee)
-plot(treee)
-text(treee, pretty = 0)
-predict(treee, newdata = target, type="class")
-
-attach(df_clean)
-plot(Age~target)
-plot(Latency~target)
-plot(N3.duration~target)
-
-w<-cbind(Age, Latency, N3.duration, target)
-str(df_clean)
-
-controltree<- tree.control(nobs=27, mincut=5, minsize = 10, mindev = 0.1 )  #mincut=0, minsize = 2 for perfect fit
-treee<- tree(target~. , data=df_clean[,-c(1,24,25)], control= controltree  )
-plot(treee)
-text(treee)
-summary(treee)
-#Latency BMI 22/26
-
-controltree<- tree.control(nobs=27 )  #mincut=0, minsize = 2 for perfect fit
-treee<- tree(target~. , data=df_clean[,-c(1,24,25)], control= controltree  )
-plot(treee)
-text(treee)
-summary(treee)
-misclass.tree(treee, detail=TRUE)
-predict(treee, newdata= target, type = "vector")
-
-#-----------------------------SVM----------------------------------------------------
-#Leave one out cross validation
-tune_out <- tune.svm(target ~ Age+ Latency + N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(0.0001,0.001,0.01, 0.1, 1,10), 
-                     gamma=c(0.0001,0.001,0.01,0.1,1,10),kernel="radial", tunecontrol= tune.control(cross=nrow(df_clean)))
-summary(tune_out)
-tune_out$best.performance #0.222 error -> 77.8% accuracy
-tune_out$best.parameters #gamma=0.1 0.01 cost=10
-
-#10-fold
-tune_out1 <- tune.svm(target ~ Age+ Latency + N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(0.0001,0.001,0.01, 0.1, 1,10), 
-                     gamma=c(0.0001,0.001,0.01,0.1,1,10),kernel="radial", tunecontrol= tune.control(cross=10))
-summary(tune_out1)
-tune_out1$best.performance #0.1833 error -> 81.7% accuracy
-tune_out1$best.parameters #gamma=0.1 cost=10
-
-#further grid search
-tune_out2<-tune.svm(target ~ Age+ Latency + N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(2,5,10,15,20,40), 
-                    gamma=c(0.5,0.3,0.2, 0.1, 0.01,0.05, 0.08),kernel="radial", tunecontrol= tune.control(cross=nrow(df_clean)))
-summary(tune_out2)
-tune_out2$best.performance #0.111 error -> 88.89% accuracy
-tune_out2$best.parameters #gamma=0.3 cost=10 15
-
-tune_out3<-tune.svm(target ~ Age+ Latency + N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(8, 10, 12, 14, 15, 16), 
-                    gamma=c(0.29, 0.295, 0.3 ,0.305, 0.31, 0.32, 0.325,  0.33 ), kernel="radial",
-                    tunecontrol= tune.control(cross=nrow(df_clean)))
-summary(tune_out3)
-tune_out3$best.performance #0.111 error -> 88.89% accuracy
-tune_out3$best.parameters #gamma=0.28-0.31 cost= 15
-# me 10-fold error 0.0833 - > acc=91.67% gamma=0.325 0.33 cost=14 15
 
 
-tune_out4<-tune.svm(target ~ Age + Latency + N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(12,14,15,16,17), 
-                    gamma=c(0.3 ,0.31, 0.32,0.3225, 0.3250,  0.3275, 0.33,0.335 ),kernel="radial", tunecontrol= tune.control(cross=10))
-summary(tune_out4)
-tune_out4$best.performance #0.111 error -> 88.89% accuracy
-tune_out4$best.parameters #gamma=0.28-0.31 cost= 15
-# me 10-fold error 0.0833 - > acc=91.67% gamma=0.325 0.33 cost=14 15
 
-str(df_clean)
-scaled<- scale(x= df_clean[,-c(1,2,24,25,26)], center=TRUE, scale = TRUE)
-scaled<- cbind(df_clean[,c(1,2)], scaled, df_clean[,c(24:26)])
-str(scaled)
 
-tune_out_scaled <- tune.svm(target ~ Age+ Latency + N3.duration , data = scaled[,-c(1,2,24,25)] ,cost=c(0.0001,0.001,0.01, 0.1, 1,10), 
-                     gamma=c(0.0001,0.001,0.01,0.1,1,10),kernel="radial", tunecontrol= tune.control(cross=nrow(scaled)))
-summary(tune_out_scaled)
-tune_out_scaled$best.performance #0.222 error -> 77.8% accuracy
-tune_out_scaled$best.parameters #gamma=0.1 0.01 cost=10
 
-tune_out_scaled1 <- tune.svm(target ~ Age+ Latency + N3.duration , data = scaled[,-c(1,2,24,25)] ,cost=c(8,9,10,11,12,15), 
-                            gamma=c(0.2,0.25, 0.28, 0.3, 0.32, 0.33, 0.35, 0.4),kernel="radial", tunecontrol= tune.control(cross=nrow(scaled)))
-summary(tune_out_scaled1)
-tune_out_scaled1$best.performance 
-tune_out_scaled1$best.parameters 
-
-tune_out_scaled2 <- tune.svm(target ~ Age+ Latency + N3.duration , data = scaled[,-c(1,2,24,25)] ,cost=c(7,7.5,8,8.5,9,10,12.5), 
-                             gamma=c( 0.3, 0.31, 0.32, 0.325, 0.33, 0.34,0.345,0.35),kernel="radial", tunecontrol= tune.control(cross=nrow(scaled)))
-summary(tune_out_scaled2)
-tune_out_scaled2$best.performance #0.111 error -> 88.8% accuracy
-tune_out_scaled2$best.parameters #gia oles tis parametrous
-
-tune_out_scaled3 <- tune.svm(target ~ Age+ Latency + N3.duration , data = scaled[,-c(1,2,24,25)] ,cost=c(7,7.5,8,8.5,9,10,12.5,14), 
-                             gamma=c( 0.3, 0.31, 0.32, 0.325, 0.33, 0.34,0.345,0.35),kernel="radial", 
-                             tunecontrol= tune.control(cross=10))
-summary(tune_out_scaled3)
-tune_out_scaled3$best.performance #0.1-0.13 error 
-tune_out_scaled3$best.parameters 
-
-#rpart<-tune.rpart(target ~ Age+ Latency + N3.duration+BMI, data = df_clean, minsplit=seq(1:15),cp=c(0.001,0.005,0.01,0.05,0.1,0.05), maxdepth = 1:10)
-#plot(rpart)
+#-------------------------------------------------------------------------------------------------------
 
 #----------------------------------------------------------------------------------------------------------------------------------
 sink("output1.txt")
@@ -591,4 +629,4 @@ tune_out4$best.performance #0.111 error -> 88.89% accuracy
 tune_out4$best.parameters #gamma=0.28-0.31 cost= 15
 # me 10-fold error 0.0833 - > acc=91.67% gamma=0.325 0.33 cost=14 15
 -----------------------------------------------------------------------------------------------------------
-sink()
+  sink()

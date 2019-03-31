@@ -114,7 +114,7 @@ plot(BMI~ Age)
 hist(df_clean$Total.Sleep.Time)
 hist(REM.duration)
 hist(df_clean$Pittsburgh.Sleep.Quality.Index,breaks = 5,col = "Royal Blue")
-hist(df_clean$Epworth.sleepiness.Scale,breaks = 5,col = "Royal Blue")
+hist(df_clean$Epworth.sleepiness.Scale,breaks = 6,col = "tomato")
 
 plot(Pittsburgh.Sleep.Quality.Index ~ Age)
 plot(Pittsburgh.Sleep.Quality.Index ~ BMI)
@@ -140,8 +140,9 @@ corrplot::corrplot(cor_mat,method = "circle", tl.col = "black", is.corr = FALSE)
 corrplot::corrplot(cor_mat,method="number", tl.col = "black", is.corr = FALSE)
 corrplot::corrplot(cor_mat,method="pie", tl.col = "black", is.corr = FALSE)
 
+str(df_clean)
 library(GGally)
-ggpairs(df_clean[,c(-1,-2)])
+ggpairs(df_clean[,c(3,4,5,6,9,11,18,19,24,25)])
 #we need less variables ~4-6
 
 #Pittsburgh correlations
@@ -169,7 +170,7 @@ View(spear_corr$r)
 View(spear_corr$P)
 
 #-------------------------Descriptive Stats-----------------------------------
-install.packages("raster")
+#install.packages("raster")
 library(raster)
 datmean <- sapply(df_clean[,3:ncol(df_clean)],"mean" ,na.rm=TRUE)
 datsd<-sapply(df_clean[,3:ncol(df_clean)], "sd", na.rm=TRUE)
@@ -183,7 +184,7 @@ datCV <- sapply(df_clean[,3:ncol(df_clean)], "cv", na.rm=TRUE)
 descr<- cbind(datmean,datmedian, datvar, datsd,datmin, datmax, range=datmax-datmin, datCV)
 colnames(descr)<-c("mean", "median", "variance", "standard dev", "min", "max", "range", "CV %")
 #Descriptive statistics of numeric variables
-descr
+View(descr)
 
 
 #--------------------------------------------------------------------------------------------------------------------
@@ -206,7 +207,7 @@ str(df_clean)
 plot(df_clean$target)
 hist(df_clean$Pittsburgh.Sleep.Quality.Index)
 summary(df_clean$target)
-boxplot(df_clean$Pittsburgh.Sleep.Quality.Index~df_clean$target, col=c(3,2))
+boxplot(df_clean$Pittsburgh.Sleep.Quality.Index~df_clean$target, col=c(3,2), main= "Target levels")
 #---------------------------------------------------------------------------------------------------------
 #factor in 3 categories
 #df_clean$y[df$Pittsburgh.Sleep.Quality.Index<=5]<-"ok"
@@ -246,7 +247,6 @@ findCorrelation(cor(df_clean[,-c(1,2,26)]),exact = TRUE, verbose=TRUE, names=FAL
 findCorrelation(cor(df_clean[,-c(1,2,26)]),exact = TRUE, verbose=TRUE, names=TRUE, cutoff = 0.95) #prints columns to remove
 #cutoff= 0.95 Deep total sleep Apneas central, Latency
 
-
 #-----------------------------SVM----------------------------------------------------
 #Leave one out cross validation
 tune_out <- tune.svm(target ~ Age+ Latency + N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(0.0001,0.001,0.01, 0.1, 1,10), 
@@ -270,6 +270,7 @@ tune_out2$best.performance #0.111 error -> 88.89% accuracy
 #misses 3 in 27
 tune_out2$best.parameters #gamma=0.3 cost=10 15
 svm_fitt <- svm(target ~ Age+ Latency + N3.duration, data = df_clean[,-c(1,2,24,25)] , kernel = "radial", cost=10, gamma=0.3)
+summary(svm_fitt)
 eval2_rbf <- predict(svm_fitt, data =df_clean[,-c(1,2,24,25,26)]  , type = "response")
 table(eval2_rbf, df_clean$target)
 
@@ -281,6 +282,8 @@ summary(tune_out3)
 tune_out3$best.performance #0.111 error -> 88.89% accuracy
 tune_out3$best.parameters #gamma=0.28-0.31 cost= 15
 # me 10-fold error 0.0833 - > acc=91.67% gamma=0.325 0.33 cost=14 15
+fittt<- svm(target ~ Age+ Latency + N3.duration, data = df_clean[,-c(1,2,24,25)] , kernel = "radial", cost=8, gamma=0.295)
+summary(fittt)
 
 # 10-fold
 tune_out4<-tune.svm(target ~ Age + Latency + N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(12,14,15,16,17), 
@@ -360,7 +363,9 @@ plot(Age~target)
 plot(Latency~target)
 plot(N3.duration~target)
 
-#w<-cbind(Age, Latency, N3.duration, target)
+
+#attach(df_clean)
+#w<-cbind(Age, Latency, BMI, target)
 #str(df_clean)
 
 controltree<- tree.control(nobs=27, mincut=5, minsize = 10, mindev = 0.1 )  #mincut=0, minsize = 2 for perfect fit
@@ -384,6 +389,55 @@ predict(treee, newdata= target, type = "vector")
 
 
 
+#------------------------Mutual Information----------------------------------------------------------
+#install.packages("infotheo")
+library(infotheo)
+str(df_clean)
+data1<-discretize(df_clean[,-c(1,2)])
+multiinformation(data1, method ="shrink")
+mutinformation(data1$Pittsburgh.Sleep.Quality.Index, data1$Latency, method="shrink")
+mm<-mutinformation(data1[,c(23,22,1,2,3,4,7,8,16,17)])
+View(mm)
+
+
+devtools::install_github("pohlio/tidyinftheo")
+library(tidyinftheo)
+mt_tib <- as_tibble(data1) %>% mutate_all(as.character)
+mi_matrix<-mutual_info_matrix(mt_tib, c(23,22,1,2,3,4,7,8,16,17), normalized=TRUE)
+
+mutual_info_heatmap(mi_matrix, title=NULL, font_sizes=c(12,12))
+
+mi_matrix2<-mutual_info_matrix(mt_tib, 23:1, normalized=TRUE)
+View(mi_matrix2)
+
+
+
+
+
+
+####--------------------------------------------------------------------------------------------------------------
+tune_out3<-tune.svm(target ~  Latency+N2.duration+Age+N3.duration , data = df_clean[,-c(1,2,24,25)] ,cost=c(8, 10, 12, 14, 15, 16), 
+                    gamma=c(0.2, 0.1, 0.3 ,0.5, 0.005, 0.001, 0.01 ), kernel="radial",
+                    tunecontrol= tune.control(cross=nrow(df_clean)))
+summary(tune_out3)
+tune_out3$best.performance #0.111 error -> 88.89% accuracy
+tune_out3$best.parameters #gamma=0.28-0.31 cost= 15
+
+
+library(tree)
+controltree<- tree.control(nobs=27, mincut=2, minsize = 5, mindev = 0.1 )  #mincut=0, minsize = 2 for perfect fit
+treee<- tree(target~ Latency+Sleep.Efficiency+Awakenings.No.+Deep.Total.Sleep+N2.duration , data=df_clean[,-c(1,2,24,25)], control= controltree  )
+plot(treee)
+text(treee)
+summary(treee)
+
+
+
+
+
+
+#-------------------------------------Trial and error, mostly error----------------------------------
+
 library(ROCR)     
 predictions=as.vector(rf_output$votes[,2])
 pred=prediction(predictions,target)
@@ -396,7 +450,6 @@ plot(perf_ROC, main="ROC plot")
 text(0.5,0.5,paste("AUC = ",format(AUC, digits=5, scientific=FALSE)))
 
 
-#-------------------------------------Trial and error, mostly error----------------------------------
 #---------------------Scaling---------------------------------------------------
 #center and scale
 numpred<-df_clean[,-c(1,2,24,25)]
